@@ -118,6 +118,10 @@ def init_db():
         )
     ''')
 
+    cursor.execute('''
+    ALTER TABLE estimates ADD COLUMN executor_id INTEGER REFERENCES executors(id)
+    ''')
+
     conn.commit()
     conn.close()
     print("✅ База данных инициализирована.")

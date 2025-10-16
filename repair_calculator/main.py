@@ -282,7 +282,7 @@ class RepairCalculatorApp:
             for e in self.executors:
                 if e[1] == selected_executor:
                     executor_id = e[0]
-                    multiplier = self.get_multiplier(e[3])
+                    multiplier = self.get_multiplier(e[2])
                     break
 
         final_total = total * multiplier

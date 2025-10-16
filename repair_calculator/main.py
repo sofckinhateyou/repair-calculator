@@ -18,6 +18,7 @@ class RepairCalculatorApp:
         self.work_types = []
         self.materials = []
         self.room_data = []
+        self.executors = []
 
         self.setup_ui()
 
@@ -50,6 +51,13 @@ class RepairCalculatorApp:
         # Кнопка "Просмотреть сохранённые расчёты"
         view_btn = ttk.Button(top_frame, text="Просмотреть сметы", command=self.view_saved_estimates)
         view_btn.grid(row=0, column=5, padx=10, pady=5)
+
+        #Исполнители
+        ttk.Label(top_frame, text="Исполнитель:", font=("Arial", 10)).grid(row=0, column=6, padx=10, pady=5, sticky="w")
+        self.executor_combo = ttk.Combobox(top_frame, state="readonly", width=25)
+        self.executor_combo.grid(row=0, column=7, padx=10, pady=5, sticky="ew")
+        # Загрузим исполнителей
+        self.load_executors()
 
         # Таблица
         self.tree = ttk.Treeview(self.root, columns=("Работа", "Материал", "Количество", "Цена за ед.", "Итого"), show="headings")
@@ -206,8 +214,24 @@ class RepairCalculatorApp:
         for row in self.tree.get_children():
             values = self.tree.item(row, "values")
             total += float(values[4])
-        self.total_label.config(text=f"Итого: {total:.2f} руб")
 
+        # Получаем выбранный исполнитель
+        selected_executor = self.executor_combo.get()
+        executor_id = None
+        multiplier = 1.0
+
+        if selected_executor:
+            for e in self.executors:
+                if e[1] == selected_executor:
+                    executor_id = e[0]
+                    rating = e[2]  # 🟢 Это рейтинг! Индекс 2, а не 3
+                    multiplier = self.get_multiplier(rating)
+                    break
+
+        final_total = total * multiplier
+
+        self.total_label.config(text=f"Итого: {final_total:.2f} руб (множитель: {multiplier:.2f})")
+        
     def save_estimate(self):
         selected_index = self.room_combo.current()
         if selected_index == -1:
@@ -215,9 +239,8 @@ class RepairCalculatorApp:
             return
 
         room_id = self.room_data[selected_index][0]
-        room_name = self.room_combo.get().split(" ")[0]  # например: "Кухня"
+        room_name = self.room_combo.get().split(" ")[0]
 
-        # Запросим имя сметы
         name = simpledialog.askstring("Сохранить смету", f"Введите название для сметы:", initialvalue=f"Ремонт {room_name} {self.root.winfo_toplevel().winfo_toplevel().title()}")
         if not name:
             return
@@ -234,14 +257,12 @@ class RepairCalculatorApp:
             price_per_unit = float(values[3])
             total_price = float(values[4])
 
-            # Находим ID работы
             work_id = None
             for w in self.work_types:
                 if w[1] == work_name:
                     work_id = w[0]
                     break
 
-            # Находим ID материала
             mat_id = None
             if material_name != "—":
                 for m in self.materials:
@@ -252,11 +273,25 @@ class RepairCalculatorApp:
             items.append((work_id, mat_id, qty, price_per_unit, total_price))
             total += total_price
 
+        # Множитель от исполнителя
+        selected_executor = self.executor_combo.get()
+        executor_id = None
+        multiplier = 1.0
+
+        if selected_executor:
+            for e in self.executors:
+                if e[1] == selected_executor:
+                    executor_id = e[0]
+                    multiplier = self.get_multiplier(e[3])
+                    break
+
+        final_total = total * multiplier
+
         # Сохраняем в БД
         try:
             self.cursor.execute(
-                "INSERT INTO estimates (name, room_id, total_price) VALUES (?, ?, ?)",
-                (name, room_id, total)
+                "INSERT INTO estimates (name, room_id, total_price, executor_id) VALUES (?, ?, ?, ?)",
+                (name, room_id, final_total, executor_id)
             )
             estimate_id = self.cursor.lastrowid
 
@@ -268,10 +303,9 @@ class RepairCalculatorApp:
                 )
 
             self.conn.commit()
-            messagebox.showinfo("Успех", f"Смета '{name}' успешно сохранена!")
+            messagebox.showinfo("Успех", f"Смета '{name}' успешно сохранена!\nИтого: {final_total:.2f} руб (множитель: {multiplier:.2f})")
         except Exception as e:
             messagebox.showerror("Ошибка", f"Не удалось сохранить смету: {e}")
-
     def view_saved_estimates(self):
         # Создаём окно
         view_window = tk.Toplevel(self.root)
@@ -423,6 +457,44 @@ class RepairCalculatorApp:
         # Bind клавиш
         detail_window.bind("<Escape>", lambda e: detail_window.destroy())
 
+    def load_executors(self):
+        try:
+            # Загружаем ID, имя и рейтинг
+            self.cursor.execute("""
+                SELECT id, name, rating 
+                FROM executors
+                ORDER BY rating DESC
+            """)
+            executors = self.cursor.fetchall()
+
+            print("🔍 Исполнители:")
+            for e in executors:
+                print(f"ID: {e[0]}, {e[1]} (рейтинг: {e[2]})")
+
+            values = [e[1] for e in executors]
+            self.executor_combo['values'] = values
+            if values:
+                self.executor_combo.current(0)
+
+            # Сохраняем все данные: (id, name, rating)
+            self.executors = executors
+
+            # Привязываем событие
+            self.executor_combo.bind("<<ComboboxSelected>>", lambda e: self.update_total())
+        except Exception as e:
+            messagebox.showerror("Ошибка", f"Не удалось загрузить исполнителей: {e}")
+
+    def get_multiplier(self, rating):
+        """Возвращает множитель стоимости по рейтингу"""
+        # Пример: 4.8 → 1.1, 4.6 → 1.05, 4.0 → 1.0
+        if rating >= 4.8:
+            return 1.1
+        elif rating >= 4.6:
+            return 1.05
+        elif rating >= 4.4:
+            return 1.02
+        else:
+            return 1.0
     def run(self):
         self.root.mainloop()
 

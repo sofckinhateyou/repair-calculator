@@ -2,11 +2,16 @@
 import sqlite3
 import os
 
-DB_PATH = "data/repair_db.sqlite"
+#DB_PATH = "data/repair_db.sqlite"
+
+# Определяем папку, где лежит этот файл (database.py)
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+SHARED_DIR = os.path.join(BASE_DIR, "shared")
+DB_PATH = os.path.join(SHARED_DIR, "repair_db.sqlite")
 
 def init_db():
     """Инициализирует базу данных и создаёт таблицы"""
-    os.makedirs("data", exist_ok=True)
+    os.makedirs(SHARED_DIR, exist_ok=True)
 
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
@@ -118,10 +123,14 @@ def init_db():
         )
     ''')
 
-    cursor.execute('''
-    ALTER TABLE estimates ADD COLUMN executor_id INTEGER REFERENCES executors(id)
-    ''')
-
+    try:
+        cursor.execute('''
+        ALTER TABLE estimates ADD COLUMN executor_id INTEGER REFERENCES executors(id)
+        ''')
+    except sqlite3.OperationalError as e:
+        if "duplicate column name" not in str(e):
+            raise
+        # Иначе — столбец уже существует, ничего не делаем
     conn.commit()
     conn.close()
     print("✅ База данных инициализирована.")

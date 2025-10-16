@@ -1,0 +1,16 @@
+version: '3.8'
+
+services:
+  file-server:
+    image: dperson/samba
+    container_name: repair_file_server
+    ports:
+      - "139:139"
+      - "445:445"
+    volumes:
+      - ./shared:/shared
+    environment:
+      - USERID=1000
+      - GROUPID=1000
+    command: '-u "guest;guest" -s "repair_db;/shared;yes;no;no;all;none"'
+    restart: unless-stopped
